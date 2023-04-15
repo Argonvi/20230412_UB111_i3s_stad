@@ -1,0 +1,18 @@
+{
+    "input": "\/home\/mibarrola\/20230412_UB114_i3s_stad\/scripts\/i3s_stad_samplesheet.csv",
+    "outdir": "\/home\/mibarrola\/20230412_UB114_i3s_stad\/analysis",
+    "multiqc_title": "i3s STAD 5 samples",
+    "fasta": "\/home\/mibarrola\/info\/references\/genomes\/human\/GRCh38.d1.vd1\/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa",
+    "gtf": "\/home\/mibarrola\/info\/references\/annotations\/human\/GRCh38\/GCA_000001405.15_GRCh38_no_alt_analysis_set.refseq_annotation.gtf",
+    "save_reference": true,
+    "igenomes_ignore": true,
+    "skip_alignment": true,
+    "pseudo_aligner": "salmon",
+    "extra_salmon_quant_args": "--gcBias --seqBias",
+    "trimmer": "fastp",
+    "extra_fastp_args": "-e 20 -l 15 --trim_poly_g --poly_g_min_len 10 --trim_poly_x --poly_x_min_len 10",
+    "gtf_extra_attributes": "gene",
+    "skip_deseq2_qc": true,
+    "max_cpus": 75,
+    "max_memory": "500.GB",
+}

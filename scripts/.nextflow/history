@@ -1,0 +1,1 @@
+2023-04-13 23:32:27	1h 11m 18s	i3s_STAD	OK	287afcfe30a93de77e9b7cf70a1085f58c9525d8	aeb4aa5f-18c0-4f7a-b69b-f5c1776770a3	nextflow -bg run nf-core/rnaseq -r 3.11.1 -name i3s_STAD -profile singularity -params-file /home/mibarrola/20230412_UB114_i3s_stad/scripts/nf-params.json

@@ -1,0 +1,183 @@
+---
+title: "An exploration of the immune state of 5 STAD samples"
+author: "Arturo González-Vilanova"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(here)
+library(data.table)
+library(tximeta)
+library(DESeq2)
+library(ggplot2)
+library(rtracklayer)
+library(pheatmap)
+library(RColorBrewer)
+library(glmpca)
+library(PoiClaClu)
+library(sva)
+```
+
+```{r loading_coldata}
+gtf_path <- here(file.path("analysis", "genome", "GCA_000001405.15_GRCh38_no_alt_analysis_set_genes.gtf"))
+sample_features <- fread(here(file.path("scripts","sample_features.tsv")))[rna == "Y"]
+files <- here(file.path("analysis","salmon",sample_features$names,"quant.sf"))
+sample_features$files <- files
+sample_features$batch <- as.factor(sample_features$batch)
+```
+
+```{r loading_expression_data}
+suppressPackageStartupMessages(library(tximeta))
+makeLinkedTxome(indexDir=here(file.path("analysis", "genome", "index", "salmon")),
+                source="NCBI RefSeq",
+                release="GCF_000001405.26_GRCh38/GRCh38_major_release_seqs_for_alignment_pipelines",
+                organism="Homo sapiens",
+                genome="GRCh38",
+                fasta=here(file.path("analysis", "genome", "GCA_000001405.15_GRCh38_no_alt_analysis_set.fa")),
+                gtf=gtf_path)
+se <- summarizeToGene(tximeta(sample_features))
+dds <- DESeqDataSet(se, design = ~ batch)
+
+gtf <- as.data.table(import(gtf_path))[type == "gene", c("gene_id", "gene_biotype")]
+rowData(dds)$gene_biotype <- gtf$gene_biotype[match(rowData(dds)$gene_id, gtf$gene_id)]
+```
+
+
+
+# Analisis exploratorio de los datos
+
+# Genes expresados (TPM > 1)
+
+```{r expressed_genes}
+ntpm <- 1
+ngenes <- apply(assay(dds, "abundance"), 2, function(x) sum(x  > ntpm))
+sample_features$ngenes <- ngenes
+
+ggplot(sample_features, aes(x = reorder(names, -ngenes), y = ngenes, fill = batch)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  labs(x = "Sample", y = "Number of genes > 1 TPM") +
+  scale_fill_discrete(name = "Batch") +
+  coord_flip()
+```
+
+## Expresión por biotipo del gen
+
+```{r expr_by_biotype}
+quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id")
+quant_abundance$Biotype <- rowData(dds)$gene_biotype
+quant_abundance <- melt.data.table(quant_abundance, id.vars = c("gene_id","Biotype"), value.name = "TPM", variable.name = "Sample")
+quant_abundance <- quant_abundance[,list(TPM = sum(TPM)), by = list(Sample,Biotype)]
+mean_by_bio <- quant_abundance[, list(mean = mean(TPM)), by = Biotype]
+low_mean <- mean_by_bio[mean < 1000,"Biotype"]
+quant_abundance <- quant_abundance[!(Biotype %in% low_mean)]
+
+ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Biotype)) +
+  geom_bar(stat="identity") +  coord_flip() + xlab("TPM")
+```
+
+## Expresión por cromosoma
+
+```{r expr_by_chr}
+quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id")
+quant_abundance$Chr <- as.data.frame(rowRanges(dds))$seqnames
+quant_abundance <- quant_abundance[Chr %in% paste0("chr",c(1:22,c("X","Y","M")))]
+quant_abundance <- melt.data.table(quant_abundance, id.vars = c("gene_id","Chr"), value.name = "TPM", variable.name = "Sample")
+quant_abundance <- quant_abundance[,list(TPM = sum(TPM)), by = list(Sample,Chr)]
+
+ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Chr)) +
+  geom_bar(stat="identity") +  coord_flip() + xlab("TPM")
+```
+
+
+```{r filter}
+keep <- rowSums(counts(dds) >= 10) >= 5
+dds <- dds[keep,]
+```
+
+## Expresión por cromosoma
+
+## Generalized PCA
+
+```{r generalized_pca}
+gpca <- glmpca(counts(dds), L=2, fam = "nb")
+gpca.dat <- gpca$factors
+gpca.dat$batch <- dds$batch
+ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
+  geom_point(size = 3) +
+  labs(x = "PC1", y = "PC2", color = "Batch") +
+  coord_fixed() +
+  ggtitle("Generalized PCA")
+```
+
+## Matriz de distancias
+
+```{r heatmap}
+poisd <- PoissonDistance(t(counts(dds)))
+attr(poisd$dd, "Labels") <- dds$names
+samplePoisDistMatrix <- as.matrix(poisd$dd)
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+annotation <- as.data.frame(sample_features[,"batch",drop=F])
+rownames(annotation) <- sample_features$names
+pheatmap(samplePoisDistMatrix,
+         clustering_distance_rows = poisd$dd,
+         clustering_distance_cols = poisd$dd,
+         annotation_col=annotation,
+         col = colors,
+         angle = 90)
+```
+
+
+
+
+## PCA tras correción por batch
+
+```{r batch_adjustment}
+dds_adjust <- dds
+dds_adjusted_counts <- ComBat_seq(counts(dds), batch=dds$batch, group=NULL)
+```
+## Generalized PCA (ajustado por batch)
+
+```{r generalized_pca_adjusted}
+gpca <- glmpca(dds_adjusted_counts, L=2, fam = "nb")
+gpca.dat <- gpca$factors
+gpca.dat$batch <- dds$batch
+ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
+  geom_point(size = 3) +
+  labs(x = "PC1", y = "PC2", color = "Batch") +
+  coord_fixed() +
+  ggtitle("Generalized PCA")
+```
+
+## Matriz de distancias (ajustada por batch)
+
+```{r heatmap_adjusted}
+poisd <- PoissonDistance(t(dds_adjusted_counts))
+attr(poisd$dd, "Labels") <- dds$names
+samplePoisDistMatrix <- as.matrix(poisd$dd)
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+annotation <- as.data.frame(sample_features[,"batch",drop=F])
+rownames(annotation) <- sample_features$names
+pheatmap(samplePoisDistMatrix,
+         clustering_distance_rows = poisd$dd,
+         clustering_distance_cols = poisd$dd,
+         annotation_col=annotation,
+         col = colors,
+         angle = 90)
+```
+
+
+
+
+
+
+
+

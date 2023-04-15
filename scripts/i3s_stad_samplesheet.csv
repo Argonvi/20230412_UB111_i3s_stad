@@ -1,0 +1,6 @@
+sample,fastq_1,fastq_2,strandedness
+S495,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S495_1.fq.gz,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S495_2.fq.gz,unstranded
+S496,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S496_1.fq.gz,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S496_2.fq.gz,unstranded
+S498,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S498_1.fq.gz,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S498_2.fq.gz,unstranded
+S901,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S901_1.fq.gz,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S901_2.fq.gz,unstranded
+S922,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S922_1.fq.gz,/home/mibarrola/20230412_UB114_i3s_stad/rawdata/S922_2.fq.gz,unstranded
