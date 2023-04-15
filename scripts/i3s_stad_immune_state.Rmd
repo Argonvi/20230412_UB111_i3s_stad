@@ -1,18 +1,26 @@
 ---
-title: "An exploration of the immune state of 5 STAD samples"
-author: "Arturo González-Vilanova"
+title: "RNA-seq exploratory data analysis for INCLIVA cohort and i3s samples"
 date: "`r Sys.Date()`"
-output: rmarkdown::html_vignette
-vignette: >
-  %\VignetteIndexEntry{Vignette Title}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
+author: "Arturo González-Vilanova"
+output:
+  rmdformats::downcute:
+    self_contained: true
+    thumbnails: false
+    lightbox: true
+    gallery: true
+    highlight: tango
+    embed_fonts: true
+    number_sections: true
 ---
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  cache = TRUE
 )
 library(here)
 library(data.table)
@@ -29,7 +37,7 @@ library(sva)
 
 ```{r loading_coldata}
 gtf_path <- here(file.path("analysis", "genome", "GCA_000001405.15_GRCh38_no_alt_analysis_set_genes.gtf"))
-sample_features <- fread(here(file.path("scripts","sample_features.tsv")))[rna == "Y"]
+sample_features <- fread(here(file.path("scripts","sample_features.tsv")))[(rna == "Y" & (QC == "Passed" | is.na(publicadas)))]
 files <- here(file.path("analysis","salmon",sample_features$names,"quant.sf"))
 sample_features$files <- files
 sample_features$batch <- as.factor(sample_features$batch)
@@ -51,11 +59,9 @@ gtf <- as.data.table(import(gtf_path))[type == "gene", c("gene_id", "gene_biotyp
 rowData(dds)$gene_biotype <- gtf$gene_biotype[match(rowData(dds)$gene_id, gtf$gene_id)]
 ```
 
+The total number of samples included in this analysis is `r nrow(sample_features)`. The INCLIVA cohort samples (identifier prefix "GTT") were included in the analysis given their RNA-seq data availability as well as appearance in the publication [Integrative immune transcriptomic classification improves patient selection for precision immunotherapy in advanced gastro-oesophageal adenocarcinoma](https://doi.org/10.1038/s41416-022-02005-z). Additionally, samples <mark>GTT33, GTT48 and GTT63</mark> where included for the specific purpose of performing batch correction with an adequate number of samples per batch.
 
-
-# Analisis exploratorio de los datos
-
-# Genes expresados (TPM > 1)
+# Number of expressed genes (TPM > 1)
 
 ```{r expressed_genes}
 ntpm <- 1
@@ -69,43 +75,59 @@ ggplot(sample_features, aes(x = reorder(names, -ngenes), y = ngenes, fill = batc
   coord_flip()
 ```
 
-## Expresión por biotipo del gen
+# Expression by gene biotype
 
 ```{r expr_by_biotype}
+min_count <- 10000
+
 quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id")
 quant_abundance$Biotype <- rowData(dds)$gene_biotype
 quant_abundance <- melt.data.table(quant_abundance, id.vars = c("gene_id","Biotype"), value.name = "TPM", variable.name = "Sample")
+low_expr_biotypes <- quant_abundance[, min_count > sum(TPM), by = Biotype][V1 == T, Biotype]
+quant_abundance[Biotype %in% low_expr_biotypes, Biotype := "Other"]
 quant_abundance <- quant_abundance[,list(TPM = sum(TPM)), by = list(Sample,Biotype)]
-mean_by_bio <- quant_abundance[, list(mean = mean(TPM)), by = Biotype]
-low_mean <- mean_by_bio[mean < 1000,"Biotype"]
-quant_abundance <- quant_abundance[!(Biotype %in% low_mean)]
+
+my_colors <- scales::hue_pal()(length(levels(dds$batch)))
+names(my_colors) <- levels(dds$batch)
 
 ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Biotype)) +
-  geom_bar(stat="identity") +  coord_flip() + xlab("TPM")
+  geom_bar(stat="identity") +
+  coord_flip() +
+  theme(axis.text.y = element_text(colour = my_colors[dds$batch]))
 ```
 
-## Expresión por cromosoma
+# Expression by chromosome
 
 ```{r expr_by_chr}
 quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id")
 quant_abundance$Chr <- as.data.frame(rowRanges(dds))$seqnames
 quant_abundance <- quant_abundance[Chr %in% paste0("chr",c(1:22,c("X","Y","M")))]
-quant_abundance <- melt.data.table(quant_abundance, id.vars = c("gene_id","Chr"), value.name = "TPM", variable.name = "Sample")
+quant_abundance <- melt(quant_abundance, id.vars = c("gene_id","Chr"), value.name = "TPM", variable.name = "Sample")
 quant_abundance <- quant_abundance[,list(TPM = sum(TPM)), by = list(Sample,Chr)]
+quant_abundance <- quant_abundance[,ChrM := ifelse(Chr == "chrM","chrM","Other")]
 
 ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Chr)) +
-  geom_bar(stat="identity") +  coord_flip() + xlab("TPM")
+  geom_bar(stat="identity") +
+  coord_flip() +
+  theme(axis.text.y = element_text(colour = my_colors[dds$batch])) +
+  labs(fill=NULL)
 ```
 
+```{r expr_by_chrM}
+quant_abundance[,sum(TPM), by = .(Sample,ChrM)]
+ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = ChrM)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  theme(axis.text.y = element_text(colour = my_colors[dds$batch])) +
+  labs(fill=NULL)
+```
 
 ```{r filter}
-keep <- rowSums(counts(dds) >= 10) >= 5
+keep <- rowSums(assay(dds, "abundance") >= 1) >= min(table(dds$batch))
 dds <- dds[keep,]
 ```
 
-## Expresión por cromosoma
-
-## Generalized PCA
+# Generalized PCA
 
 ```{r generalized_pca}
 gpca <- glmpca(counts(dds), L=2, fam = "nb")
@@ -118,7 +140,7 @@ ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
   ggtitle("Generalized PCA")
 ```
 
-## Matriz de distancias
+# Distance matrix
 
 ```{r heatmap}
 poisd <- PoissonDistance(t(counts(dds)))
@@ -131,20 +153,18 @@ pheatmap(samplePoisDistMatrix,
          clustering_distance_rows = poisd$dd,
          clustering_distance_cols = poisd$dd,
          annotation_col=annotation,
+         annotation_colors = list(batch = my_colors),
          col = colors,
          angle = 90)
 ```
 
+# Batch adjustment by ComBat-seq
 
-
-
-## PCA tras correción por batch
-
-```{r batch_adjustment}
+```{r batch_adjustment, echo = T}
 dds_adjust <- dds
 dds_adjusted_counts <- ComBat_seq(counts(dds), batch=dds$batch, group=NULL)
 ```
-## Generalized PCA (ajustado por batch)
+## Generalized PCA
 
 ```{r generalized_pca_adjusted}
 gpca <- glmpca(dds_adjusted_counts, L=2, fam = "nb")
@@ -157,7 +177,7 @@ ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
   ggtitle("Generalized PCA")
 ```
 
-## Matriz de distancias (ajustada por batch)
+## Distance matrix
 
 ```{r heatmap_adjusted}
 poisd <- PoissonDistance(t(dds_adjusted_counts))
@@ -174,9 +194,12 @@ pheatmap(samplePoisDistMatrix,
          angle = 90)
 ```
 
+# Immune signatures
 
-
-
+```{r load_signatures}
+signatures <- fread(here(file.path("scripts","immune_functional_signatures.tsv")), na.strings="")
+signatures <- lapply(signatures, na.omit)
+```
 
 
 
