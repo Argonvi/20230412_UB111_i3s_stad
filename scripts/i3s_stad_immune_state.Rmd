@@ -15,12 +15,14 @@ output:
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>",
-  echo = FALSE,
-  message = FALSE,
-  warning = FALSE,
-  cache = TRUE
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	cache = TRUE,
+	collapse = TRUE,
+	comment = "#>",
+	cache.path = "../analysis/i3s_stad_immune_state_cache/",
+	fig.path = "../analysis/i3s_stad_immune_state_files/"
 )
 library(here)
 library(data.table)
@@ -103,8 +105,8 @@ quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id"
 quant_abundance$Chr <- as.data.frame(rowRanges(dds))$seqnames
 quant_abundance <- quant_abundance[Chr %in% paste0("chr",c(1:22,c("X","Y","M")))]
 quant_abundance <- melt(quant_abundance, id.vars = c("gene_id","Chr"), value.name = "TPM", variable.name = "Sample")
-quant_abundance <- quant_abundance[,list(TPM = sum(TPM)), by = list(Sample,Chr)]
-quant_abundance <- quant_abundance[,ChrM := ifelse(Chr == "chrM","chrM","Other")]
+quant_abundance <- quant_abundance[, list(TPM = sum(TPM)), by = list(Sample,Chr)]
+quant_abundance[, ChrM := ifelse(Chr == "chrM","chrM","Other")]
 
 ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Chr)) +
   geom_bar(stat="identity") +
@@ -114,7 +116,7 @@ ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Chr)) +
 ```
 
 ```{r expr_by_chrM}
-quant_abundance[,sum(TPM), by = .(Sample,ChrM)]
+quant_abundance <- quant_abundance[,.(TPM=sum(TPM)), by = .(Sample,ChrM)]
 ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = ChrM)) +
   geom_bar(stat="identity") +
   coord_flip() +
