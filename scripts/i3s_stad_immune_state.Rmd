@@ -56,10 +56,9 @@ makeLinkedTxome(indexDir=here(file.path("analysis", "genome", "index", "salmon")
                 fasta=here(file.path("analysis", "genome", "GCA_000001405.15_GRCh38_no_alt_analysis_set.fa")),
                 gtf=gtf_path)
 se <- summarizeToGene(tximeta(sample_features))
-dds <- DESeqDataSet(se, design = ~ batch)
 
 gtf <- as.data.table(import(gtf_path))[type == "gene", c("gene_id", "gene_biotype")]
-rowData(dds)$gene_biotype <- gtf$gene_biotype[match(rowData(dds)$gene_id, gtf$gene_id)]
+rowData(se)$gene_biotype <- gtf$gene_biotype[match(rowData(se)$gene_id, gtf$gene_id)]
 ```
 
 The total number of samples included in this analysis is `r nrow(sample_features)`. The INCLIVA cohort samples (identifier prefix "GTT") were included in the analysis given their RNA-seq data availability as well as appearance in the publication [Integrative immune transcriptomic classification improves patient selection for precision immunotherapy in advanced gastro-oesophageal adenocarcinoma](https://doi.org/10.1038/s41416-022-02005-z). Additionally, samples <mark>GTT33, GTT48 and GTT63</mark> where included for the specific purpose of performing batch correction with an adequate number of samples per batch.
@@ -67,7 +66,7 @@ The total number of samples included in this analysis is `r nrow(sample_features
 # Number of expressed genes (TPM > 1)
 
 ```{r expressed_genes}
-ngenes <- apply(assay(dds, "abundance"), 2, function(x) sum(x  > ntpm))
+ngenes <- apply(assay(se, "abundance"), 2, function(x) sum(x  > ntpm))
 sample_features$ngenes <- ngenes
 
 ggplot(sample_features, aes(x = reorder(names, -ngenes), y = ngenes, fill = batch)) +
@@ -82,27 +81,27 @@ ggplot(sample_features, aes(x = reorder(names, -ngenes), y = ngenes, fill = batc
 ```{r expr_by_biotype}
 min_tpm <- 10000
 
-quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id")
-quant_abundance$Biotype <- rowData(dds)$gene_biotype
+quant_abundance <- data.table(assay(se, "abundance"), keep.rownames = "gene_id")
+quant_abundance$Biotype <- rowData(se)$gene_biotype
 quant_abundance <- melt.data.table(quant_abundance, id.vars = c("gene_id","Biotype"), value.name = "TPM", variable.name = "Sample")
 low_expr_biotypes <- quant_abundance[, min_tpm > sum(TPM), by = Biotype][V1 == T, Biotype]
 quant_abundance[Biotype %in% low_expr_biotypes, Biotype := "Other"]
 quant_abundance <- quant_abundance[,list(TPM = sum(TPM)), by = list(Sample,Biotype)]
 
-my_colors <- scales::hue_pal()(length(levels(dds$batch)))
-names(my_colors) <- levels(dds$batch)
+my_colors <- scales::hue_pal()(length(levels(se$batch)))
+names(my_colors) <- levels(se$batch)
 
 ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Biotype)) +
   geom_bar(stat="identity") +
   coord_flip() +
-  theme(axis.text.y = element_text(colour = my_colors[dds$batch]))
+  theme(axis.text.y = element_text(colour = my_colors[se$batch]))
 ```
 
 # Expression by chromosome
 
 ```{r expr_by_chr}
-quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id")
-quant_abundance$Chr <- as.data.frame(rowRanges(dds))$seqnames
+quant_abundance <- data.table(assay(se, "abundance"), keep.rownames = "gene_id")
+quant_abundance$Chr <- as.data.frame(rowRanges(se))$seqnames
 quant_abundance <- quant_abundance[Chr %in% paste0("chr",c(1:22,c("X","Y","M")))]
 quant_abundance <- melt(quant_abundance, id.vars = c("gene_id","Chr"), value.name = "TPM", variable.name = "Sample")
 quant_abundance <- quant_abundance[, list(TPM = sum(TPM)), by = list(Sample,Chr)]
@@ -111,7 +110,7 @@ quant_abundance[, ChrM := ifelse(Chr == "chrM","chrM","Other")]
 ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = Chr)) +
   geom_bar(stat="identity") +
   coord_flip() +
-  theme(axis.text.y = element_text(colour = my_colors[dds$batch])) +
+  theme(axis.text.y = element_text(colour = my_colors[se$batch])) +
   labs(fill=NULL)
 ```
 
@@ -120,21 +119,22 @@ quant_abundance <- quant_abundance[,.(TPM=sum(TPM)), by = .(Sample,ChrM)]
 ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = ChrM)) +
   geom_bar(stat="identity") +
   coord_flip() +
-  theme(axis.text.y = element_text(colour = my_colors[dds$batch])) +
+  theme(axis.text.y = element_text(colour = my_colors[se$batch])) +
   labs(fill=NULL)
 ```
 
 ```{r filter}
-keep <- rowSums(assay(dds, "abundance") >= ntpm) >= min(table(dds$batch))
-dds <- dds[keep,]
+#keep <- rowSums(assay(se, "abundance") >= ntpm) >= min(table(se$batch))
+keep <- rowSums(assay(se, "counts")) >= 1
+se <- se[keep,]
 ```
 
 # Generalized PCA
 
 ```{r generalized_pca}
-gpca <- glmpca(counts(dds), L=2, fam = "nb")
+gpca <- glmpca(assay(se, "counts"), L=2, fam = "nb")
 gpca.dat <- gpca$factors
-gpca.dat$batch <- dds$batch
+gpca.dat$batch <- se$batch
 ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
   geom_point(size = 3) +
   labs(x = "PC1", y = "PC2", color = "Batch") +
@@ -145,8 +145,8 @@ ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
 # Distance matrix
 
 ```{r heatmap}
-poisd <- PoissonDistance(t(counts(dds)))
-attr(poisd$dd, "Labels") <- dds$names
+poisd <- PoissonDistance(t(assay(se, "counts")))
+attr(poisd$dd, "Labels") <- se$names
 samplePoisDistMatrix <- as.matrix(poisd$dd)
 colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
 annotation <- as.data.frame(sample_features[,"batch",drop=F])
@@ -157,20 +157,22 @@ pheatmap(samplePoisDistMatrix,
          annotation_col=annotation,
          annotation_colors = list(batch = my_colors),
          col = colors,
-         angle = 90)
+         annotation_names_col = F,
+         angle = 90,
+         treeheight_row = 0)
 ```
 
 # Batch adjustment by ComBat-seq
 
 ```{r batch_adjustment, echo = T}
-dds_adjusted_counts <- ComBat_seq(counts(dds), batch=dds$batch, group=NULL)
+se_adjusted_counts <- ComBat_seq(assay(se,"counts"), batch=se$batch, group=NULL)
 ```
 ## Generalized PCA
 
 ```{r generalized_pca_adjusted}
-gpca <- glmpca(dds_adjusted_counts, L=2, fam = "nb")
+gpca <- glmpca(se_adjusted_counts, L=2, fam = "nb")
 gpca.dat <- gpca$factors
-gpca.dat$batch <- dds$batch
+gpca.dat$batch <- se$batch
 ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
   geom_point(size = 3) +
   labs(x = "PC1", y = "PC2", color = "Batch") +
@@ -181,8 +183,8 @@ ggplot(gpca.dat, aes(x = dim1, y = dim2, color = batch)) +
 ## Distance matrix
 
 ```{r heatmap_adjusted}
-poisd <- PoissonDistance(t(dds_adjusted_counts))
-attr(poisd$dd, "Labels") <- dds$names
+poisd <- PoissonDistance(t(se_adjusted_counts))
+attr(poisd$dd, "Labels") <- se$names
 samplePoisDistMatrix <- as.matrix(poisd$dd)
 colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
 annotation <- as.data.frame(sample_features[,"batch",drop=F])
@@ -191,8 +193,10 @@ pheatmap(samplePoisDistMatrix,
          clustering_distance_rows = poisd$dd,
          clustering_distance_cols = poisd$dd,
          annotation_col=annotation,
+         annotation_names_col = F,
          col = colors,
-         angle = 90)
+         angle = 90,
+         treeheight_row = 0)
 ```
 
 # Immune signatures
@@ -200,32 +204,23 @@ pheatmap(samplePoisDistMatrix,
 ```{r load_signatures}
 signatures <- fread(here(file.path("scripts","immune_functional_signatures.tsv")), na.strings="")
 immune_genes <- unique(unlist(lapply(signatures, na.omit)))
-vsd <- vst(dds_adjusted_counts)
-missing_genes <- immune_genes[!(immune_genes %in% rownames(vsd))]
-
-library(org.Mm.eg.db)
-ids <- AnnotationDbi::select(org.Mm.eg.db, missing_genes, "SYMBOL", "ALIAS")
-  if(sum(is.na(entrez_id$ENTREZID > 0))){
-    missing <- subset(entrez_id, is.na(ENTREZID))[,"SYMBOL"]
-    found <- na.omit(AnnotationDbi::select(org.Mm.eg.db, missing, "ENTREZID", "ALIAS"))
-  }
-  entrez_id <- rbind(subset(entrez_id, !is.na(ENTREZID)), found)
-  colnames(entrez_id) <- c("Gene","Entrez_ID")
-  return(entrez_id)
-}
-
-
+vsd <- vst(round(se_adjusted_counts))
 vsd_immune <- vsd[immune_genes,]
+vsd_immune <- vsd_immune[,-c("GTT33","GTT48","GTT63")]
 ```
 
 ```{r}
-pheatmap(dds_immune,
-         clustering_distance_rows = ,
-         clustering_distance_cols = ,
-         annotation_col=annotation,
+pheatmap(vsd_immune,
+         annotation_col = annotation,
          annotation_colors = list(batch = my_colors),
          col = colors,
-         angle = 90)
+         cluster_rows = F,
+         cluster_cols = T,
+         clustering_method = "ward.D",
+         angle = 90,
+         show_rownames=  F,
+         annotation_names_col = F
+         )
 ```
 
 
