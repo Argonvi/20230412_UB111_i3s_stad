@@ -43,6 +43,7 @@ sample_features <- fread(here(file.path("scripts","sample_features.tsv")))[(rna 
 files <- here(file.path("analysis","salmon",sample_features$names,"quant.sf"))
 sample_features$files <- files
 sample_features$batch <- as.factor(sample_features$batch)
+ntpm <- 1 ## Minimum TMP for a gene to be considered expressed
 ```
 
 ```{r loading_expression_data}
@@ -66,7 +67,6 @@ The total number of samples included in this analysis is `r nrow(sample_features
 # Number of expressed genes (TPM > 1)
 
 ```{r expressed_genes}
-ntpm <- 1
 ngenes <- apply(assay(dds, "abundance"), 2, function(x) sum(x  > ntpm))
 sample_features$ngenes <- ngenes
 
@@ -80,12 +80,12 @@ ggplot(sample_features, aes(x = reorder(names, -ngenes), y = ngenes, fill = batc
 # Expression by gene biotype
 
 ```{r expr_by_biotype}
-min_count <- 10000
+min_tpm <- 10000
 
 quant_abundance <- data.table(assay(dds, "abundance"), keep.rownames = "gene_id")
 quant_abundance$Biotype <- rowData(dds)$gene_biotype
 quant_abundance <- melt.data.table(quant_abundance, id.vars = c("gene_id","Biotype"), value.name = "TPM", variable.name = "Sample")
-low_expr_biotypes <- quant_abundance[, min_count > sum(TPM), by = Biotype][V1 == T, Biotype]
+low_expr_biotypes <- quant_abundance[, min_tpm > sum(TPM), by = Biotype][V1 == T, Biotype]
 quant_abundance[Biotype %in% low_expr_biotypes, Biotype := "Other"]
 quant_abundance <- quant_abundance[,list(TPM = sum(TPM)), by = list(Sample,Biotype)]
 
@@ -125,7 +125,7 @@ ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = ChrM)) +
 ```
 
 ```{r filter}
-keep <- rowSums(assay(dds, "abundance") >= 1) >= min(table(dds$batch))
+keep <- rowSums(assay(dds, "abundance") >= ntpm) >= min(table(dds$batch))
 dds <- dds[keep,]
 ```
 
@@ -163,7 +163,6 @@ pheatmap(samplePoisDistMatrix,
 # Batch adjustment by ComBat-seq
 
 ```{r batch_adjustment, echo = T}
-dds_adjust <- dds
 dds_adjusted_counts <- ComBat_seq(counts(dds), batch=dds$batch, group=NULL)
 ```
 ## Generalized PCA
@@ -200,8 +199,35 @@ pheatmap(samplePoisDistMatrix,
 
 ```{r load_signatures}
 signatures <- fread(here(file.path("scripts","immune_functional_signatures.tsv")), na.strings="")
-signatures <- lapply(signatures, na.omit)
+immune_genes <- unique(unlist(lapply(signatures, na.omit)))
+vsd <- vst(dds_adjusted_counts)
+missing_genes <- immune_genes[!(immune_genes %in% rownames(vsd))]
+
+library(org.Mm.eg.db)
+ids <- AnnotationDbi::select(org.Mm.eg.db, missing_genes, "SYMBOL", "ALIAS")
+  if(sum(is.na(entrez_id$ENTREZID > 0))){
+    missing <- subset(entrez_id, is.na(ENTREZID))[,"SYMBOL"]
+    found <- na.omit(AnnotationDbi::select(org.Mm.eg.db, missing, "ENTREZID", "ALIAS"))
+  }
+  entrez_id <- rbind(subset(entrez_id, !is.na(ENTREZID)), found)
+  colnames(entrez_id) <- c("Gene","Entrez_ID")
+  return(entrez_id)
+}
+
+
+vsd_immune <- vsd[immune_genes,]
 ```
+
+```{r}
+pheatmap(dds_immune,
+         clustering_distance_rows = ,
+         clustering_distance_cols = ,
+         annotation_col=annotation,
+         annotation_colors = list(batch = my_colors),
+         col = colors,
+         angle = 90)
+```
+
 
 
 
