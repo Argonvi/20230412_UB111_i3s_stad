@@ -166,6 +166,8 @@ pheatmap(samplePoisDistMatrix,
 
 ```{r batch_adjustment, echo = T}
 se_adjusted_counts <- ComBat_seq(assay(se,"counts"), batch=se$batch, group=NULL)
+vsd_adjusted <- vst(round(se_adjusted_counts))
+tpm_adjusted <- t(t(se_adjusted_counts*10**6/assay(se,"length"))/colSums(se_adjusted_counts/assay(se,"length")))
 ```
 ## Generalized PCA
 
@@ -193,10 +195,26 @@ pheatmap(samplePoisDistMatrix,
          clustering_distance_rows = poisd$dd,
          clustering_distance_cols = poisd$dd,
          annotation_col=annotation,
+         annotation_colors = list(batch = my_colors),
          annotation_names_col = F,
          col = colors,
          angle = 90,
          treeheight_row = 0)
+```
+```{r write_xlsx}
+library(openxlsx)
+wb <- createWorkbook(creator="Arturo González-Vilanova",
+                     title="RNA-seq quantification data (18/04/2023)")
+addWorksheet(wb, "VST batch adjusted")
+writeData(wb, sheet = "VST batch adjusted", rowNames = T,
+          x = vsd_adjusted[,-match(c("GTT33","GTT48","GTT63"),colnames(vsd_adjusted))])
+addWorksheet(wb, "TPM batch adjusted")
+writeData(wb, sheet = "TPM batch adjusted", rowNames = T,
+          x = tpm_adjusted[,-match(c("GTT33","GTT48","GTT63"),colnames(tpm_adjusted))])
+addWorksheet(wb, "Counts batch adjusted")
+writeData(wb, sheet = "Counts batch adjusted", rowNames = T,
+          x = se_adjusted_counts[,-match(c("GTT33","GTT48","GTT63"),colnames(se_adjusted_counts))])
+saveWorkbook(wb, here(file.path("analysis","rnaseq_quant_incliva_i3s.xlsx")), overwrite = TRUE)
 ```
 
 # Immune signatures
@@ -204,18 +222,24 @@ pheatmap(samplePoisDistMatrix,
 ```{r load_signatures}
 signatures <- fread(here(file.path("scripts","immune_functional_signatures.tsv")), na.strings="")
 immune_genes <- unique(unlist(lapply(signatures, na.omit)))
-vsd <- vst(round(se_adjusted_counts))
-vsd_immune <- vsd[immune_genes,]
-vsd_immune <- vsd_immune[,-c("GTT33","GTT48","GTT63")]
+vsd_immune <- vsd_adjusted[immune_genes,]
+vsd_immune <- vsd_immune[,-match(c("GTT33","GTT48","GTT63"),colnames(vsd_immune))]
 ```
 
+
+
+
 ```{r}
+poisd <- PoissonDistance(t(se_adjusted_counts[immune_genes,
+                                              colnames(vsd_immune)]))
+attr(poisd$dd, "Labels") <- colnames(vsd_immune)
 pheatmap(vsd_immune,
-         annotation_col = annotation,
+         annotation_col = annotation[colnames(vsd_immune),,drop=F],
          annotation_colors = list(batch = my_colors),
          col = colors,
          cluster_rows = F,
          cluster_cols = T,
+         clustering_distance_cols = poisd$dd,
          clustering_method = "ward.D",
          angle = 90,
          show_rownames=  F,
