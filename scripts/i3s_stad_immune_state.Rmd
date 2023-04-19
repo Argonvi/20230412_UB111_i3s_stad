@@ -16,13 +16,13 @@ output:
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
 	echo = FALSE,
+	fig.path = "../analysis/i3s_stad_immune_state_files/",
 	message = FALSE,
 	warning = FALSE,
 	cache = TRUE,
-	collapse = TRUE,
-	comment = "#>",
 	cache.path = "../analysis/i3s_stad_immune_state_cache/",
-	fig.path = "../analysis/i3s_stad_immune_state_files/"
+	collapse = TRUE,
+	comment = "#>"
 )
 library(here)
 library(data.table)
@@ -219,6 +219,8 @@ saveWorkbook(wb, here(file.path("analysis","rnaseq_quant_incliva_i3s.xlsx")), ov
 
 # Immune signatures
 
+## Heatmaps at the immune signature level
+
 ```{r load_signatures}
 signatures <- fread(here(file.path("scripts","immune_functional_signatures.tsv")), na.strings="")
 immune_genes <- unique(unlist(lapply(signatures, na.omit)))
@@ -226,25 +228,37 @@ vsd_immune <- vsd_adjusted[immune_genes,]
 vsd_immune <- vsd_immune[,-match(c("GTT33","GTT48","GTT63"),colnames(vsd_immune))]
 ```
 
+```{r is_heatmaps, fig.height = 9}
+hmap_list <- lapply(names(signatures), function(signature){
+  genes <- na.omit(signatures[[signature]])
+  quant <- vsd_immune[genes,]
+  hmap <- pheatmap(quant,
+                   fontsize_row= 10 - nrow(quant) / 15,
+                   angle = 45,
+                   main = signature,
+                   cluter_rows = T,
+                   cluster_cols = T,
+                   clustering_method = "ward.D",
+                   annotation_names_col = F,
+                   cutree_cols = 2)
+  return(hmap)
+})
+names(hmap_list) <- names(signatures)
+```
 
+## Integrative heatmap
 
-
-```{r}
-poisd <- PoissonDistance(t(se_adjusted_counts[immune_genes,
-                                              colnames(vsd_immune)]))
-attr(poisd$dd, "Labels") <- colnames(vsd_immune)
-pheatmap(vsd_immune,
-         annotation_col = annotation[colnames(vsd_immune),,drop=F],
-         annotation_colors = list(batch = my_colors),
-         col = colors,
-         cluster_rows = F,
-         cluster_cols = T,
-         clustering_distance_cols = poisd$dd,
+```{r heatmap_classification}
+immune_classes <- data.frame(lapply(hmap_list, function(hmap){ cutree(hmap$tree_col, k = 2) }), check.names = F)
+annotation$Cohort <- ifelse(grepl("^S",rownames(annotation)),"i3S","INCLIVA") 
+pheatmap(t(immune_classes),
+         annotation_col = annotation[colnames(vsd_immune),"Cohort",drop=F],
+         angle = 45,
          clustering_method = "ward.D",
-         angle = 90,
-         show_rownames=  F,
-         annotation_names_col = F
-         )
+         legend = F,
+         annotation_legend = F,
+         treeheight_row = 0,
+         cutree_cols = 2)
 ```
 
 
