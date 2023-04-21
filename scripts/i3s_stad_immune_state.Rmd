@@ -123,9 +123,10 @@ ggplot(quant_abundance, aes(x = Sample, y = TPM, fill = ChrM)) +
   labs(fill=NULL)
 ```
 
+# Filtro de genes poco expresados
 ```{r filter}
 #keep <- rowSums(assay(se, "abundance") >= ntpm) >= min(table(se$batch))
-keep <- rowSums(assay(se, "counts")) >= 1
+keep <- rowSums(assay(se, "counts")) >= 10
 se <- se[keep,]
 ```
 
@@ -223,7 +224,9 @@ saveWorkbook(wb, here(file.path("analysis","rnaseq_quant_incliva_i3s.xlsx")), ov
 
 ```{r load_signatures}
 signatures <- fread(here(file.path("scripts","immune_functional_signatures.tsv")), na.strings="")
-immune_genes <- unique(unlist(lapply(signatures, na.omit)))
+lowly_xpr_signatures <- lapply(signatures, function(x){ x <- na.omit(x); x[!(x %in% rownames(vsd_adjusted))]})
+signatures <- lapply(signatures, function(x){ x <- na.omit(x); x[x %in% rownames(vsd_adjusted)]})
+immune_genes <- unique(unlist(signatures))
 vsd_immune <- vsd_adjusted[immune_genes,]
 vsd_immune <- vsd_immune[,-match(c("GTT33","GTT48","GTT63"),colnames(vsd_immune))]
 ```
@@ -232,11 +235,10 @@ vsd_immune <- vsd_immune[,-match(c("GTT33","GTT48","GTT63"),colnames(vsd_immune)
 hmap_list <- lapply(names(signatures), function(signature){
   genes <- na.omit(signatures[[signature]])
   quant <- vsd_immune[genes,]
-  hmap <- pheatmap(quant,
-                   fontsize_row= 10 - nrow(quant) / 15,
+  hmap <- pheatmap(quant - rowMeans(quant),
+                   fontsize_row = 10 - nrow(quant) / 15,
                    angle = 45,
                    main = signature,
-                   cluter_rows = T,
                    cluster_cols = T,
                    clustering_method = "ward.D",
                    annotation_names_col = F,
@@ -250,11 +252,13 @@ names(hmap_list) <- names(signatures)
 
 ```{r heatmap_classification}
 immune_classes <- data.frame(lapply(hmap_list, function(hmap){ cutree(hmap$tree_col, k = 2) }), check.names = F)
+immune_classes$`T-CELL FUNCTION` <- c(2,1)[immune_classes$`T-CELL FUNCTION`]
+immune_classes$`NK-CELL FUNCTION` <- c(2,1)[immune_classes$`NK-CELL FUNCTION`]
 annotation$Cohort <- ifelse(grepl("^S",rownames(annotation)),"i3S","INCLIVA") 
 pheatmap(t(immune_classes),
          annotation_col = annotation[colnames(vsd_immune),"Cohort",drop=F],
          angle = 45,
-         clustering_method = "ward.D",
+         clustering_method = "ward.D2",
          legend = F,
          annotation_legend = F,
          treeheight_row = 0,
