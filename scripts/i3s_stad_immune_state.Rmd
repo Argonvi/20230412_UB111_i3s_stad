@@ -254,11 +254,14 @@ names(hmap_list) <- names(signatures)
 immune_classes <- data.frame(lapply(hmap_list, function(hmap){ cutree(hmap$tree_col, k = 2) }), check.names = F)
 immune_classes$`T-CELL FUNCTION` <- c(2,1)[immune_classes$`T-CELL FUNCTION`]
 immune_classes$`NK-CELL FUNCTION` <- c(2,1)[immune_classes$`NK-CELL FUNCTION`]
-annotation$Cohort <- ifelse(grepl("^S",rownames(annotation)),"i3S","INCLIVA") 
+immune_classes <- immune_classes - 1
+immune_classes <- immune_classes[order(rowSums(immune_classes)),]
+annotation$Cohort <- ifelse(grepl("^S",rownames(annotation)),"i3S","INCLIVA")
 pheatmap(t(immune_classes),
          annotation_col = annotation[colnames(vsd_immune),"Cohort",drop=F],
          angle = 45,
          clustering_method = "ward.D2",
+         cluster_cols = F,
          legend = F,
          annotation_legend = F,
          treeheight_row = 0,
